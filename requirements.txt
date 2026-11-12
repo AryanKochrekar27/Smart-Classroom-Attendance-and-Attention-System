@@ -1,0 +1,21 @@
+flask 
+python-dotenv
+mysqlclient 
+pymysql 
+numpy 
+Pillow 
+opencv-python 
+dlib 
+face-recognition 
+click 
+itsdangerous 
+jinja2 
+markupsafe 
+werkzeug 
+requests 
+pyopenssl 
+cryptography
+mysql-connector-python
+
+# pip install -r req.txt
+#cmake

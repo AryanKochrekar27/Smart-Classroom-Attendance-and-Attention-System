@@ -1,0 +1,96 @@
+{% extends "base.html" %} {% block title %}Home — Attendance{% endblock %} {%
+block content %}
+<div class="py-3">
+  <h3 class="fw-bold text-center mb-1">College Attendance System</h3>
+  <p class="text-muted text-center mb-4">
+    Manage subjects, register faces, and take attendance from mobile or desktop.
+  </p>
+
+  <h5 class="fw-semibold mb-3">Available Semesters</h5>
+
+  {% if semesters %}
+  <div class="row g-3">
+    {% for s in semesters %}
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+      <div class="card semester-card h-100 border-0 shadow-sm">
+        <div class="card-body d-flex flex-column text-center">
+          <h5 class="fw-bold text-primary mb-2">
+            🎓 Semester {{ s['semester'] }}
+          </h5>
+
+          <p class="text-muted small mb-3">
+            Access attendance reports and quick summaries.
+          </p>
+
+          <div class="d-grid gap-2 mb-3">
+            <a
+              class="btn btn-outline-primary btn-sm"
+              href="{{ url_for('page_attendance_report') }}?semester={{ s['semester'] }}&quick=today&view=overview"
+              >Today’s Report</a
+            >
+            <a
+              class="btn btn-outline-secondary btn-sm"
+              href="{{ url_for('page_attendance_report') }}?semester={{ s['semester'] }}&quick=prev1&view=overview"
+              >Yesterday</a
+            >
+            <a
+              class="btn btn-outline-secondary btn-sm"
+              href="{{ url_for('page_attendance_report') }}?semester={{ s['semester'] }}&quick=prev2&view=overview"
+              >2 Days Ago</a
+            >
+          </div>
+
+          <div class="d-grid gap-2 mt-auto">
+            <a
+              class="btn btn-success btn-sm"
+              href="{{ url_for('page_attendance_report') }}?semester={{ s['semester'] }}&view=overview&quick=today"
+              >📅 Overview</a
+            >
+            <a
+              class="btn btn-info btn-sm text-white"
+              href="{{ url_for('page_attendance_report') }}?semester={{ s['semester'] }}"
+              >📊 Full Report</a
+            >
+            <a
+              class="btn btn-outline-dark btn-sm"
+              href="{{ url_for('page_students') }}?semester={{ s['semester'] }}"
+              >👥 View Students</a
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center mt-5">
+    <p class="text-muted">No semesters found.</p>
+    <a class="btn btn-primary" href="{{ url_for('page_admin') }}"
+      >Add Semesters & Subjects</a
+    >
+  </div>
+  {% endif %}
+</div>
+
+<style>
+  .semester-card {
+    transition: all 0.3s ease-in-out;
+  }
+  .semester-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+  }
+  .btn-sm {
+    font-size: 0.88rem;
+    padding: 0.35rem 0.55rem;
+  }
+  .card-body {
+    padding: 1rem;
+  }
+  @media (max-width: 576px) {
+    .card-body {
+      padding: 0.9rem;
+    }
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %} {% block content %}
+<div class="py-3">
+  <h2>View Attendance</h2>
+
+  <form
+    class="row g-2 mb-3"
+    method="get"
+    action="{{ url_for('page_view_attendance') }}"
+  >
+    <div class="col-auto">
+      <label class="form-label">Subject name</label>
+      <input
+        class="form-control"
+        name="subject"
+        placeholder="Subject name"
+        value="{{ request.args.get('subject','') }}"
+        required
+      />
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Date</label>
+      <input
+        class="form-control"
+        type="date"
+        name="date"
+        value="{{ request.args.get('date','') }}"
+        required
+      />
+    </div>
+    <div class="col-auto align-self-end">
+      <button class="btn btn-primary">Show</button>
+    </div>
+  </form>
+
+  {% if records %}
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>USN</th>
+        <th>Semester</th>
+        <th>Status</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r['display_name'] }}</td>
+        <td>{{ r['usn'] }}</td>
+        <td>{{ r['semester'] }}</td>
+        <td>{{ r['status'] }}</td>
+        <td>{{ r['time_marked'] or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No records found (choose a subject and date and click Show).</p>
+  {% endif %}
+</div>
+{% endblock %}

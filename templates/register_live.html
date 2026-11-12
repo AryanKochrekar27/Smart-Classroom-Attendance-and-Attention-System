@@ -1,0 +1,25 @@
+{% extends 'base.html' %} {% block content %}
+<div class="py-3">
+  <h2>Live Registration (Desktop)</h2>
+  <p>
+    Click the button below to open the Tkinter registration GUI on the server
+    machine. Use that GUI to capture multiple face images for a student. After
+    you finish capturing, run <strong>Process Features</strong> to update
+    embeddings.
+  </p>
+  <form method="post">
+    <button class="btn btn-primary">Launch Registration GUI</button>
+  </form>
+
+  <hr />
+  <form
+    id="procFeatures"
+    method="post"
+    action="{{ url_for('process_features') }}"
+  >
+    <button class="btn btn-secondary" type="submit">
+      Run Feature Extraction & Refresh Embeddings
+    </button>
+  </form>
+</div>
+{% endblock %}

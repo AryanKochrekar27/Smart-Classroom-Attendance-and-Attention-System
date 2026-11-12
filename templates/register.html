@@ -1,0 +1,522 @@
+{% extends "base.html" %} {% block content %}
+<div class="container py-3" style="max-width: 720px">
+  <h3 class="mb-3">Student Self Registration</h3>
+
+  <div id="alertArea"></div>
+
+  <form id="regForm" class="card p-3" novalidate>
+    <div class="mb-2">
+      <label class="form-label">USN</label>
+      <input id="input_usn" name="usn" class="form-control" placeholder="USN (roll number)" required />
+    </div>
+
+    <div class="mb-2">
+      <label class="form-label">Full name</label>
+      <input id="input_name" name="display_name" class="form-control" placeholder="Your name" required />
+    </div>
+
+    <div class="mb-2">
+      <label class="form-label">Semester</label>
+      <select id="input_sem" name="semester" class="form-select" required>
+        <option value="">Select semester</option>
+        {% for sem in fetch_semesters %}
+        <option value="{{ sem['semester'] }}">{{ sem['semester'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <hr />
+
+    <!-- PC Live Camera block (visible only on non-mobile via JS) -->
+    <div id="pcCameraBlock" style="display: none" class="mb-2 card p-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <label class="form-label mb-0">Use PC Camera (recommended for kiosk)</label>
+        <select id="cameraSelect" class="form-select form-select-sm" style="max-width: 260px; display: none"></select>
+      </div>
+      <div>
+        <video id="regVideo" autoplay playsinline muted style="
+            width: 100%;
+            max-height: 360px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #000;
+          "></video>
+        <img id="serverCamPreview" alt="Server webcam preview" style="
+            display: none;
+            width: 100%;
+            max-height: 360px;
+            object-fit: contain;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #000;
+          " />
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button type="button" id="startCamBtn" class="btn btn-sm btn-primary">
+          Start Camera
+        </button>
+        <button type="button" id="stopCamBtn" class="btn btn-sm btn-outline-secondary">
+          Stop Camera
+        </button>
+        <button type="button" id="captureBtn" class="btn btn-sm btn-success">
+          Capture & Upload
+        </button>
+      </div>
+      <small class="text-muted d-block mt-2">If browser camera is blocked, the live PC camera stream starts automatically. You can also upload a file below.</small>
+    </div>
+
+    <!-- Phone / fallback file input -->
+    <div id="fileUploadBlock" class="mb-2">
+      <label class="form-label">Or take/upload a face photo</label>
+      <input id="imageInput" name="image" type="file" accept="image/*" capture="environment" class="form-control" />
+      <small class="text-muted">Use your phone camera (front/back). Good light and single face.</small>
+      <div id="preview" class="mt-2"></div>
+    </div>
+
+    <!-- hidden token field -->
+    <input type="hidden" id="regToken" name="token" value="" />
+
+    <div class="d-flex gap-2 mt-3">
+      <button id="submitBtn" class="btn btn-primary">
+        Register (upload file)
+      </button>
+      <button id="updateBtn" class="btn btn-outline-secondary" style="display: none">
+        Update Photo
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // --- helpers: query string
+  function qs(name) {
+    const url = new URL(window.location);
+    return url.searchParams.get(name);
+  }
+  const tokenParam = qs("token");
+  const usnParam = qs("usn");
+  document.getElementById("regToken").value = tokenParam || "";
+
+  // --- pre-fill USN if present
+  if (usnParam) {
+    document.getElementById("input_usn").value = usnParam;
+    setTimeout(() => checkExistingUSN(usnParam), 300);
+  }
+
+  // --- image preview for file input
+  const imageInput = document.getElementById("imageInput");
+  const preview = document.getElementById("preview");
+  imageInput.addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (!f) {
+      preview.innerHTML = "";
+      return;
+    }
+    const img = document.createElement("img");
+    img.style.maxWidth = "100%";
+    img.style.borderRadius = "6px";
+    preview.innerHTML = "";
+    preview.appendChild(img);
+    const reader = new FileReader();
+    reader.onload = (ev) => (img.src = ev.target.result);
+    reader.readAsDataURL(f);
+  });
+
+  // --- check existing USN endpoint
+  async function checkExistingUSN(usn) {
+    if (!usn) return;
+    try {
+      const res = await fetch(`/api/check_usn?usn=${encodeURIComponent(usn)}`);
+      const j = await res.json();
+      if (res.ok && j.exists) {
+        showAlert(
+          "warning",
+          "USN already registered. You can update photo instead of creating duplicate."
+        );
+        if (j.student) {
+          document.getElementById("input_name").value =
+            j.student.display_name || "";
+          document.getElementById("input_sem").value = j.student.semester || "";
+        }
+        document.getElementById("submitBtn").style.display = "none";
+        document.getElementById("updateBtn").style.display = "inline-block";
+      } else {
+        clearAlert();
+        document.getElementById("submitBtn").style.display = "inline-block";
+        document.getElementById("updateBtn").style.display = "none";
+      }
+    } catch (e) {
+      showAlert("danger", "Could not check USN: " + e.message);
+    }
+  }
+  document.getElementById("input_usn").addEventListener("blur", (e) => {
+    const v = e.target.value.trim();
+    if (v) checkExistingUSN(v);
+  });
+
+  // --- register form (file upload) submit handler
+  document.getElementById("regForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    // Custom validation
+    const usn = document.getElementById("input_usn").value.trim();
+    const name = document.getElementById("input_name").value.trim();
+    const sem = document.getElementById("input_sem").value;
+    const fileInput = document.getElementById("imageInput");
+
+    if (!usn || !name || !sem) {
+      return showAlert("warning", "Please ensure USN, Full Name, and Semester are all filled.");
+    }
+
+
+    // If user captured via PC camera we will not submit the file form — capture handler uploads directly.
+    const fd = new FormData(e.target);
+    if (tokenParam) fd.set("token", tokenParam);
+    try {
+      const res = await fetch("/api/register_face", {
+        method: "POST",
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        if (j.error === "image and display_name required") {
+          console.log("Suppressed error:", j.error);
+        } else {
+          showAlert("danger", j.error || JSON.stringify(j));
+        }
+        return;
+      }
+      showAlert(
+        "primary",
+        "Student Added Successfully"
+      );
+      // optionally reset form for next user
+      // e.target.reset(); preview.innerHTML='';
+    } catch (err) {
+      showAlert("danger", "Upload failed: " + err.message);
+    }
+  });
+
+  // --- update existing
+  document.getElementById("updateBtn").addEventListener("click", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(document.getElementById("regForm"));
+    fd.set("update", "1");
+    if (tokenParam) fd.set("token", tokenParam);
+    try {
+      const res = await fetch("/api/register_face", {
+        method: "POST",
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) return showAlert("danger", j.error || JSON.stringify(j));
+      showAlert(
+        "success",
+        "Photo updated for USN " +
+        (document.getElementById("input_usn").value || "")
+      );
+    } catch (err) {
+      showAlert("danger", "Update failed: " + err.message);
+    }
+  });
+
+  // --- UI alerts
+  function showAlert(level, msg) {
+    document.getElementById(
+      "alertArea"
+    ).innerHTML = `<div class="alert alert-${level}">${msg}</div>`;
+  }
+  function clearAlert() {
+    document.getElementById("alertArea").innerHTML = "";
+  }
+
+  // ------------------
+  // PC camera capture logic (only show on non-mobile)
+  // We'll detect mobile by simple userAgent / touch heuristic
+  const isMobile =
+    /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    ("ontouchstart" in window && navigator.maxTouchPoints > 0);
+  const pcCameraBlock = document.getElementById("pcCameraBlock");
+  const cameraSelect = document.getElementById("cameraSelect");
+  const startCamBtn = document.getElementById("startCamBtn");
+  const stopCamBtn = document.getElementById("stopCamBtn");
+  const captureBtn = document.getElementById("captureBtn");
+  const serverCamPreview = document.getElementById("serverCamPreview");
+  const video = document.getElementById("regVideo");
+  let camStream = null;
+  let serverStreamActive = false;
+
+  if (!isMobile) {
+    pcCameraBlock.style.display = "block";
+    // hide file upload to encourage camera? keep shown as fallback
+  } else {
+    pcCameraBlock.style.display = "none";
+  }
+
+  function stopBrowserStream() {
+    if (camStream) {
+      camStream.getTracks().forEach((t) => t.stop());
+      camStream = null;
+      video.srcObject = null;
+    }
+  }
+
+  async function stopServerStream(useBeacon = false) {
+    if (!serverStreamActive) return;
+    serverStreamActive = false;
+    serverCamPreview.removeAttribute("src");
+    serverCamPreview.style.display = "none";
+    video.style.display = "block";
+    if (useBeacon && navigator.sendBeacon) {
+      navigator.sendBeacon("/api/server_camera_stop");
+    } else {
+      try {
+        await fetch("/api/server_camera_stop", { method: "POST" });
+      } catch {}
+    }
+  }
+
+  window.addEventListener("pagehide", () => {
+    stopBrowserStream();
+    stopServerStream(true);
+  });
+
+  async function populateCameraList() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((d) => d.kind === "videoinput");
+      if (videoDevices.length > 0) {
+        const currentVal = cameraSelect.value;
+        cameraSelect.innerHTML = "";
+        videoDevices.forEach((d, idx) => {
+          const opt = document.createElement("option");
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Camera ${idx + 1}`;
+          cameraSelect.appendChild(opt);
+        });
+        if (currentVal) cameraSelect.value = currentVal;
+        cameraSelect.style.display = videoDevices.length > 1 ? "block" : "none";
+      }
+      return videoDevices;
+    } catch {
+      return [];
+    }
+  }
+
+  async function acquireCameraStream() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error(
+        window.isSecureContext
+          ? "Browser camera API is unavailable."
+          : "Camera requires http://127.0.0.1:5001 or HTTPS (blocked on insecure HTTP IP)."
+      );
+    }
+
+    const selectedId = cameraSelect.value;
+    const candidates = [];
+    if (selectedId) {
+      candidates.push({ video: { deviceId: { exact: selectedId } }, audio: false });
+    }
+    candidates.push({ video: true, audio: false });
+    candidates.push({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+
+    const devices = await populateCameraList();
+    for (const dev of devices) {
+      if (dev.deviceId && dev.deviceId !== selectedId) {
+        candidates.push({ video: { deviceId: { exact: dev.deviceId } }, audio: false });
+      }
+    }
+
+    let lastErr = null;
+    for (const constraints of candidates) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        lastErr = err;
+        if (err && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
+          throw err;
+        }
+      }
+    }
+    throw lastErr || new Error("Could not start video source");
+  }
+
+  function startLiveServerStream() {
+    return new Promise((resolve, reject) => {
+      stopBrowserStream();
+      video.style.display = "none";
+      serverCamPreview.style.display = "block";
+
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          serverStreamActive = true;
+          resolve();
+        }
+      }, 2500);
+
+      serverCamPreview.onload = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          serverStreamActive = true;
+          resolve();
+        }
+      };
+      serverCamPreview.onerror = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          serverStreamActive = false;
+          serverCamPreview.removeAttribute("src");
+          serverCamPreview.style.display = "none";
+          video.style.display = "block";
+          reject(new Error("PC webcam stream could not be opened."));
+        }
+      };
+
+      serverCamPreview.src = "/api/server_camera_stream?t=" + Date.now();
+    });
+  }
+
+  startCamBtn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    stopBrowserStream();
+    await stopServerStream();
+
+    try {
+      camStream = await acquireCameraStream();
+      video.srcObject = camStream;
+      await populateCameraList();
+      try {
+        await video.play();
+      } catch (playErr) {
+        console.warn("video.play() notice:", playErr);
+      }
+      showAlert("info", "Live camera started. Position student and click Capture & Upload.");
+    } catch (err) {
+      stopBrowserStream();
+      const errText = err.message || String(err);
+      showAlert("info", "Starting live PC camera stream...");
+      try {
+        await startLiveServerStream();
+        showAlert("success", "Live camera started. Position student and click Capture & Upload.");
+      } catch (srvErr) {
+        showAlert(
+          "danger",
+          `Cannot start camera: ${errText}. Close any other app/tab using the webcam and check Windows Camera permissions. (${srvErr.message})`
+        );
+      }
+    }
+  });
+
+  stopCamBtn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    stopBrowserStream();
+    await stopServerStream();
+    showAlert("info", "Camera stopped.");
+  });
+
+  async function uploadCapturedBlob(blob) {
+    const usn = document.getElementById("input_usn").value.trim();
+    const name = document.getElementById("input_name").value.trim();
+    const sem = document.getElementById("input_sem").value;
+
+    if (!usn || !name || !sem) {
+      showAlert("warning", "Please fill USN, Full name, and Semester before capturing.");
+      return;
+    }
+
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(blob);
+    img.style.maxWidth = "100%";
+    img.style.borderRadius = "6px";
+    preview.innerHTML = "";
+    preview.appendChild(img);
+
+    const fd = new FormData();
+    fd.append("image", blob, "capture.jpg");
+    fd.append("usn", usn);
+    fd.append("display_name", name);
+    fd.append("semester", sem);
+    if (tokenParam) fd.append("token", tokenParam);
+    if (document.getElementById("updateBtn").style.display !== "none") {
+      fd.append("update", "1");
+    }
+
+    try {
+      const res = await fetch("/api/register_face", {
+        method: "POST",
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        showAlert("danger", j.error || JSON.stringify(j));
+        return;
+      }
+      showAlert("success", "Student registered successfully! Student ID: " + (j.student_id || "—"));
+    } catch (err) {
+      showAlert("danger", "Upload failed: " + err.message);
+    }
+  }
+
+  captureBtn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    if (serverStreamActive) {
+      const w = serverCamPreview.naturalWidth || 640;
+      const h = serverCamPreview.naturalHeight || 480;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      try {
+        ctx.drawImage(serverCamPreview, 0, 0, w, h);
+        canvas.toBlob(
+          async (blob) => {
+            if (blob) {
+              await uploadCapturedBlob(blob);
+            } else {
+              const r = await fetch("/api/server_camera_snapshot?t=" + Date.now());
+              if (!r.ok) return showAlert("danger", "Failed to capture frame from live stream.");
+              await uploadCapturedBlob(await r.blob());
+            }
+          },
+          "image/jpeg",
+          0.9
+        );
+      } catch {
+        const r = await fetch("/api/server_camera_snapshot?t=" + Date.now());
+        if (!r.ok) return showAlert("danger", "Failed to capture frame from live stream.");
+        await uploadCapturedBlob(await r.blob());
+      }
+      return;
+    }
+
+    if (!camStream) {
+      showAlert("warning", "Start camera first (or upload a photo below).");
+      return;
+    }
+
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 480;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          showAlert("danger", "Failed to capture image from video stream.");
+          return;
+        }
+        await uploadCapturedBlob(blob);
+      },
+      "image/jpeg",
+      0.85
+    );
+  });
+</script>
+{% endblock %}

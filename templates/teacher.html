@@ -1,0 +1,102 @@
+{% extends "base.html" %} {% block content %}
+<div class="py-3">
+  <h2>Teacher — Start a Session</h2>
+
+  <form method="post" id="teacherForm">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Teacher name</label>
+        <input
+          class="form-control"
+          name="teacher_name"
+          placeholder="Your name"
+          required
+        />
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Subject</label>
+        <select
+          class="form-select"
+          name="subject_id"
+          id="subjectSelect"
+          required
+        >
+          <option value="">Select subject</option>
+          {% for s in subjects %}
+          <option value="{{ s['id'] }}">
+            {{ s['semester'] }} — {{ s['name'] }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Date</label>
+        <input
+          class="form-control"
+          type="date"
+          name="date"
+          value="{{ today }}"
+          required
+        />
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Batch (optional)</label>
+        <select id="batchSelect" name="batch_id" class="form-select">
+          <option value="">All students (no batch)</option>
+        </select>
+        <div class="form-text">
+          For lab/class sections, pick a batch to limit attendance to that
+          group.
+        </div>
+      </div>
+
+      <div class="col-md-6 d-flex align-items-end justify-content-end">
+        <button class="btn btn-primary">Start Session</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Fetch batches for the selected subject and populate batchSelect
+  async function loadBatchesForSubject(subjectId) {
+    const sel = document.getElementById("batchSelect");
+    sel.innerHTML = '<option value="">All students (no batch)</option>';
+    if (!subjectId) return;
+    try {
+      const res = await fetch("/api/get_batches/" + subjectId);
+      if (!res.ok) return;
+      const rows = await res.json();
+      rows.forEach((r) => {
+        const opt = document.createElement("option");
+        opt.value = r.id;
+        opt.text = `${r.name} — ${r.usn_start} → ${r.usn_end}`;
+        sel.appendChild(opt);
+      });
+    } catch (err) {
+      console.warn("Failed to load batches", err);
+    }
+  }
+
+  const subjectSelect = document.getElementById("subjectSelect");
+  if (subjectSelect) {
+    subjectSelect.addEventListener("change", (e) => {
+      loadBatchesForSubject(e.target.value);
+    });
+
+    // initial load if subject preselected (useful when teacher page gets a default)
+    if (subjectSelect.value) loadBatchesForSubject(subjectSelect.value);
+  }
+
+  // Optional: prevent double-submit UX (simple)
+  document.getElementById("teacherForm").addEventListener("submit", (e) => {
+    const btn =
+      e.target.querySelector('button[type="submit"]') ||
+      e.target.querySelector("button");
+    if (btn) btn.disabled = true;
+  });
+</script>
+{% endblock %}

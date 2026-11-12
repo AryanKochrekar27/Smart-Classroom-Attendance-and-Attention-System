@@ -1,0 +1,337 @@
+{% extends "base.html" %} {% block content %}
+<div class="py-3">
+  <h2>Admin panel</h2>
+
+  <div class="row">
+    <div class="col-lg-6">
+      <div class="card mb-3 p-3">
+        <h5>Add Semester</h5>
+        <form method="post">
+          <input type="hidden" name="type" value="semester" />
+          <div class="mb-2">
+            <input
+              class="form-control"
+              name="semester"
+              placeholder="Semester name (e.g. Sem-5)"
+              required
+            />
+          </div>
+          <button class="btn btn-primary">Add Semester</button>
+        </form>
+      </div>
+
+      <div class="card mb-3 p-3">
+        <h5>Add Subject</h5>
+        <form method="post">
+          <input type="hidden" name="type" value="subject" />
+          <div class="mb-2">
+            <input
+              class="form-control"
+              name="name"
+              placeholder="Subject name (e.g. Operating Systems)"
+              required
+            />
+          </div>
+          <div class="mb-2">
+            <select class="form-select" name="semester" required>
+              <option value="">Select semester</option>
+              {% for sem in semesters %}
+              <option value="{{ sem['semester'] }}">
+                {{ sem['semester'] }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-primary">Add Subject</button>
+        </form>
+      </div>
+
+      <div class="card mb-3 p-3">
+        <h5>Maintenance</h5>
+        <p>
+          Use the button below to refresh embeddings cache (after registering
+          faces).
+        </p>
+        <a
+          class="btn btn-secondary"
+          href="{{ url_for('route_refresh_embeddings') }}"
+          >Refresh Embeddings</a
+        >
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card mb-3 p-3">
+        <h5>Existing Subjects (Edit / Delete)</h5>
+        {% if subjects %}
+        <div style="max-height: 420px; overflow: auto">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Semester</th>
+                <th>Subject</th>
+                <th style="width: 140px">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for sub in subjects %}
+              <tr id="subject-row-{{ sub['id'] }}">
+                <td class="subject-sem">{{ sub['semester'] }}</td>
+                <td class="subject-name">{{ sub['name'] }}</td>
+                <td>
+                  <button
+                    class="btn btn-sm btn-outline-primary"
+                    onclick="openEditModal({{ sub['id'] }}, '{{ sub['name']|e }}', '{{ sub['semester']|e }}')"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    onclick="deleteSubject({{ sub['id'] }})"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p>No subjects added yet.</p>
+        {% endif %}
+      </div>
+
+      <!-- Inline Batch manager (kept as before) -->
+      <div class="card mb-3 p-3">
+        <h5>Manage Batches (Lab / Sections)</h5>
+
+        <form
+          method="post"
+          action="{{ url_for('admin_batches') }}"
+          class="mb-3"
+        >
+          <div class="row g-2 align-items-end">
+            <div class="col-12">
+              <label class="form-label">Subject</label>
+              <select class="form-select" name="subject_id" required>
+                <option value="">Select subject</option>
+                {% for s in subjects %}
+                <option value="{{ s['id'] }}">
+                  {{ s['semester'] }} — {{ s['name'] }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Batch name</label>
+              <input
+                class="form-control"
+                name="name"
+                placeholder="Batch name (B1)"
+                required
+              />
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">USN start</label>
+              <input
+                class="form-control"
+                name="usn_start"
+                placeholder="eg 2BA22CS001"
+                required
+              />
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">USN end</label>
+              <input
+                class="form-control"
+                name="usn_end"
+                placeholder="eg 2BA22CS023"
+                required
+              />
+            </div>
+
+            <div class="col-12 text-end mt-2">
+              <button class="btn btn-primary">Add Batch</button>
+            </div>
+          </div>
+        </form>
+
+        <hr />
+
+        <h6 class="mb-2">Existing Batches</h6>
+        {% if batches %}
+        <div style="max-height: 220px; overflow: auto">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Subject</th>
+                <th>Batch</th>
+                <th>USN range</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in batches %}
+              <tr>
+                <td>{{ b['semester'] }} — {{ b['subject_name'] }}</td>
+                <td>{{ b['name'] }}</td>
+                <td>{{ b['usn_start'] }} — {{ b['usn_end'] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p>No batches defined yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Subject modal -->
+<div class="modal fade" id="editSubjectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="editSubjectForm">
+        <div class="modal-header">
+          <h5 class="modal-title">Edit Subject</h5>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal"
+          ></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="edit-subject-id" name="id" />
+          <div class="mb-2">
+            <label class="form-label">Subject name</label>
+            <input
+              type="text"
+              id="edit-subject-name"
+              name="name"
+              class="form-control"
+              required
+            />
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Semester</label>
+            <select
+              id="edit-subject-sem"
+              name="semester"
+              class="form-select"
+              required
+            >
+              {% for sem in semesters %}
+              <option value="{{ sem['semester'] }}">
+                {{ sem['semester'] }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div id="edit-subject-msg"></div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn btn-secondary"
+            type="button"
+            data-bs-dismiss="modal"
+          >
+            Cancel
+          </button>
+          <button class="btn btn-primary" type="submit">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // open edit modal and prefill fields
+  function openEditModal(id, name, sem) {
+    document.getElementById("edit-subject-id").value = id;
+    document.getElementById("edit-subject-name").value = name;
+    document.getElementById("edit-subject-sem").value = sem;
+    document.getElementById("edit-subject-msg").innerHTML = "";
+    var modal = new bootstrap.Modal(
+      document.getElementById("editSubjectModal")
+    );
+    modal.show();
+  }
+
+  // submit edit via AJAX
+  document
+    .getElementById("editSubjectForm")
+    .addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const id = document.getElementById("edit-subject-id").value;
+      const name = document.getElementById("edit-subject-name").value;
+      const sem = document.getElementById("edit-subject-sem").value;
+      const msgEl = document.getElementById("edit-subject-msg");
+      msgEl.innerHTML = "Saving...";
+
+      try {
+        const res = await fetch('{{ url_for("page_admin") }}', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "edit_subject",
+            id: parseInt(id),
+            name: name,
+            semester: sem,
+          }),
+        });
+        const j = await res.json();
+        if (res.ok && j.ok) {
+          msgEl.innerHTML = '<div class="alert alert-success">Saved</div>';
+          // update table values inline
+          const row = document.getElementById("subject-row-" + id);
+          if (row) {
+            row.querySelector(".subject-name").innerText = name;
+            row.querySelector(".subject-sem").innerText = sem;
+          }
+          setTimeout(() => {
+            bootstrap.Modal.getInstance(
+              document.getElementById("editSubjectModal")
+            ).hide();
+          }, 600);
+        } else {
+          msgEl.innerHTML =
+            '<div class="alert alert-danger">' +
+            (j.error || "Failed") +
+            "</div>";
+        }
+      } catch (err) {
+        msgEl.innerHTML =
+          '<div class="alert alert-danger">Error: ' + err.message + "</div>";
+      }
+    });
+
+  // delete subject (confirm then call server)
+  async function deleteSubject(id) {
+    if (!confirm("Delete subject? This will remove related timetable entries."))
+      return;
+    try {
+      const res = await fetch('{{ url_for("page_admin") }}', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_subject", id: parseInt(id) }),
+      });
+      const j = await res.json();
+      if (res.ok && j.ok) {
+        // remove row
+        const row = document.getElementById("subject-row-" + id);
+        if (row) row.remove();
+      } else {
+        alert("Delete failed: " + (j.error || "unknown"));
+      }
+    } catch (err) {
+      alert("Delete error: " + err.message);
+    }
+  }
+</script>
+
+{% endblock %}

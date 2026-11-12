@@ -1,0 +1,75 @@
+{% extends "base.html" %} {% block content %}
+<div class="container py-3">
+  <h3>Batches (for lab subjects)</h3>
+
+  <div class="card p-3 mb-3">
+    <form method="post">
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label>Subject</label>
+          <select name="subject_id" class="form-select" required>
+            <option value="">Choose subject</option>
+            {% for s in subjects %}
+            <option value="{{ s['id'] }}">
+              {{ s['semester'] }} — {{ s['name'] }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label>Batch name</label>
+          <input
+            name="name"
+            class="form-control"
+            required
+            placeholder="B1,B2..."
+          />
+        </div>
+        <div class="col-md-2">
+          <label>USN start</label>
+          <input
+            name="usn_start"
+            class="form-control"
+            required
+            placeholder="e.g. 2BA22CS001"
+          />
+        </div>
+        <div class="col-md-2">
+          <label>USN end</label>
+          <input
+            name="usn_end"
+            class="form-control"
+            required
+            placeholder="e.g. 2BA22CS023"
+          />
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+          <button class="btn btn-primary">Add</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card p-3">
+    <h5>Existing batches</h5>
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th>Subject</th>
+          <th>Batch</th>
+          <th>USN Range</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in batches %}
+        <tr>
+          <td>{{ b.subject_name }} ({{ b.semester }})</td>
+          <td>{{ b.name }}</td>
+          <td>{{ b.usn_start }} — {{ b.usn_end }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

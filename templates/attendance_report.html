@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="py-3">
+  <h2>Attendance Report</h2>
+
+  <form class="row g-2 mb-3" method="get">
+    <div class="col-md-3">
+      <label class="form-label">Semester</label>
+      <select name="semester" class="form-select" onchange="this.form.submit()">
+        <option value="">--choose--</option>
+        {% for s in semesters %}
+          <option value="{{ s['semester'] }}" {% if selected.semester==s['semester'] %}selected{% endif %}>{{ s['semester'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label">Subject</label>
+      <select name="subject" class="form-select" onchange="this.form.submit()">
+        <option value="">--choose--</option>
+        {% for sub in subjects %}
+          <option value="{{ sub['id'] }}" {% if selected.subject==sub['id']|string %}selected{% endif %}>{{ sub['name'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">From</label>
+      <input type="date" name="from" value="{{ selected.from }}" class="form-control">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">To</label>
+      <input type="date" name="to" value="{{ selected.to }}" class="form-control">
+    </div>
+
+    <div class="col-md-2 align-self-end">
+      <select name="view" class="form-select mb-2">
+        <option value="">Detail</option>
+        <option value="overview" {% if selected.view=='overview' %}selected{% endif %}>Today's overview</option>
+        <option value="student" {% if selected.view=='student' %}selected{% endif %}>Per-student (subject)</option>
+      </select>
+      <button class="btn btn-primary w-100">Show</button>
+    </div>
+  </form>
+
+  {% if summary_stats %}
+    <div class="row g-2 mb-3">
+      <div class="col-md-4">
+        <div class="card p-2">
+          <small class="text-muted">Present / Total</small>
+          <div class="fs-5 fw-bold">{{ summary_stats.present_count }} / {{ summary_stats.total_count }}</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-2">
+          <small class="text-muted">Overall Attendance %</small>
+          <div class="fs-5 fw-bold">
+            {% if summary_stats.attendance_pct is not none %}
+              {{ ('%.1f' % summary_stats.attendance_pct) }}%
+            {% else %}
+              -
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-2">
+          <small class="text-muted">Avg Attention Score %</small>
+          <div class="fs-5 fw-bold">
+            {% if summary_stats.avg_attention is not none %}
+              {{ ('%.1f' % summary_stats.avg_attention) }}%
+            {% else %}
+              -
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if overall_summary %}
+    <h5>Overview — Subjects ({{ selected.from }} to {{ selected.to }})</h5>
+    <table class="table table-sm">
+      <thead><tr><th>Subject</th><th>Present</th><th>Total Students</th><th>Attendance %</th><th>Attention Score %</th></tr></thead>
+      <tbody>
+        {% for r in overall_summary %}
+          <tr>
+            <td>{{ r['subject_name'] }}</td>
+            <td>{{ r['present_count'] }}</td>
+            <td>{{ r['total_marks'] }}</td>
+            <td>
+              {% if r.total_marks and r.total_marks|int > 0 %}
+                {{ ('%.1f' % ((r.present_count|float / r.total_marks|float) * 100)) }}%
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if r.avg_attention is not none %}
+                {{ ('%.1f' % (r.avg_attention|float)) }}%
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif student_summary %}
+    <h5>Per Student summary — Subject: {{ (subjects | selectattr('id','equalto', selected.subject|int) | list | first).name if selected.subject }}</h5>
+    <table class="table table-sm">
+      <thead><tr><th>Student</th><th>USN</th><th>Present</th><th>Total classes</th><th>Attendance %</th><th>Attention Score %</th></tr></thead>
+      <tbody>
+        {% for r in student_summary %}
+          <tr>
+            <td>{{ r['display_name'] }}</td>
+            <td>{{ r['usn'] }}</td>
+            <td>{{ r['present_count'] }}</td>
+            <td>{{ r['total_classes'] }}</td>
+            <td>
+              {% if r.total_classes and r.total_classes|int > 0 %}
+                {{ ('%.1f' % ((r.present_count|float / r.total_classes|float) * 100)) }}%
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if r.avg_attention is not none %}
+                {{ ('%.1f' % (r.avg_attention|float)) }}%
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {% if records %}
+      <table class="table table-striped">
+        <thead><tr><th>Date</th><th>Name</th><th>USN</th><th>Subject</th><th>Status</th><th>Attendance %</th><th>Attention Score %</th><th>Time</th></tr></thead>
+        <tbody>
+          {% for r in records %}
+            <tr>
+              <td>{{ r['date'] }}</td>
+              <td>{{ r['display_name'] }}</td>
+              <td>{{ r['usn'] }}</td>
+              <td>{{ r['subject'] }}</td>
+              <td>{{ r['status'] }}</td>
+              <td>{{ '100.0%' if r['status'] == 'Present' else '0.0%' }}</td>
+              <td>
+                {% if r['attention_score'] is not none %}
+                  {{ ('%.1f' % (r['attention_score']|float)) }}%
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>{{ r['time_marked'] or '-' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No records yet. Use the filters above or click Today from home to get a quick overview.</p>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

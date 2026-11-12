@@ -1,0 +1,26 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables & secrets
+.env
+
+# Local databases & captured student face images
+*.db
+*.sqlite
+*.sqlite3
+data_faces/
+data/data_faces_from_camera/
+
+# Editor / IDE temp files
+tempCodeRunnerFile.py
+.vscode/
+.DS_Store
+Thumbs.db
+

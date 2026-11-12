@@ -1,0 +1,625 @@
+{% extends "base.html" %} {% block content %}
+<div class="py-3">
+  <h2>Take Attendance</h2>
+  <p>
+    <strong>Subject:</strong> {{ subject['name'] }} —
+    <strong>Semester:</strong> {{ subject['semester'] }}
+  </p>
+  <p>
+    <strong>Session id:</strong> {{ session['id'] }} | <strong>Date:</strong> {{
+    session['date'] }}
+  </p>
+
+  <div class="row">
+    <div class="col-md-7">
+      <div class="card mb-3 p-3">
+        <h5>Live Camera (Teacher) — Auto detect faces</h5>
+        <div class="mb-2">
+          <video
+            id="video"
+            autoplay
+            playsinline
+            muted
+            style="width: 100%; border: 1px solid #ddd; border-radius: 6px"
+          ></video>
+          <img
+            id="serverVideo"
+            alt="Live server camera stream"
+            style="display: none; width: 100%; border: 1px solid #ddd; border-radius: 6px"
+          />
+        </div>
+
+        <div class="d-flex gap-2 mb-2">
+          <button id="startBtn" class="btn btn-primary">Start Camera</button>
+          <button id="stopBtn" class="btn btn-outline-secondary">
+            Stop Camera
+          </button>
+          <button id="snapBtn" class="btn btn-info">Take Snapshot Now</button>
+          <div id="liveStatus" class="ms-auto align-self-center text-muted">
+            Idle
+          </div>
+        </div>
+        <!-- Fallback for phones without live camera support -->
+        <input
+          id="phoneCameraInput"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style="display: none"
+        />
+        <button
+          id="usePhoneCamBtn"
+          class="btn btn-outline-primary d-md-none mt-2"
+        >
+          Use Phone Camera (open camera)
+        </button>
+        <div id="cameraHint" class="small text-muted mt-1">
+          Tip: On phones, use "Use Phone Camera" if Start Camera is blocked.
+        </div>
+
+        <div id="detectMsg" class="mt-2"></div>
+        <small class="text-muted"
+          >Camera frames are sent automatically for detection. You can also
+          upload a photo or snapshot manually.</small
+        >
+
+        <hr class="my-3" />
+
+        <form id="uploadForm" enctype="multipart/form-data">
+          <label class="form-label">Or upload a classroom photo</label>
+          <input
+            type="file"
+            name="image"
+            accept="image/*"
+            class="form-control mb-2"
+          />
+          <button class="btn btn-secondary">Upload & Detect</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="col-md-5">
+      <div class="card mb-3 p-3">
+        <h5>Step 2 — Review & Save</h5>
+        <p>
+          Detected students will auto-check below. Correct manually if needed,
+          then Save.
+        </p>
+
+        <div class="mb-2">
+          <button id="checkAll" class="btn btn-sm btn-outline-secondary">
+            Check All
+          </button>
+          <button id="clearAll" class="btn btn-sm btn-outline-secondary">
+            Clear All
+          </button>
+          <button id="saveBtn" class="btn btn-success">Save Attendance</button>
+        </div>
+
+        <form id="studentsForm">
+          <input
+            type="hidden"
+            name="subject_id"
+            value="{{ session['subject_id'] }}"
+          />
+          <input type="hidden" name="date" value="{{ session['date'] }}" />
+          <input
+            type="hidden"
+            name="batch_id"
+            value="{{ session.get('batch_id', '') }}"
+          />
+          <div id="studentsList" style="max-height: 420px; overflow: auto">
+            {% for s in students %}
+            <label
+              class="d-flex justify-content-between align-items-center list-group-item"
+            >
+              <div>
+                <input
+                  type="checkbox"
+                  class="form-check-input me-2 student-checkbox"
+                  value="{{ s['id'] }}"
+                />
+                <strong>{{ s['display_name'] }}</strong><br />
+                <small class="text-muted">USN: {{ s['usn'] or '-' }}</small>
+              </div>
+              <div style="min-width: 110px">
+                <span class="badge bg-secondary" id="status-{{ s['id'] }}"
+                  >—</span
+                >
+              </div>
+            </label>
+            {% endfor %}
+          </div>
+        </form>
+      </div>
+
+      <div class="card p-3">
+        <h6>Present Right Now</h6>
+        <div id="presentNow" style="min-height: 40px"></div>
+        <hr />
+        <h6>Recent detections</h6>
+        <div
+          id="recentList"
+          style="min-height: 80px; max-height: 160px; overflow: auto"
+        ></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Config
+  const DETECT_INTERVAL_MS = 2000; // how often to send a frame (2s)
+  const VIDEO_WIDTH = 640;
+  const VIDEO_HEIGHT = 480;
+
+  // Elements
+  const video = document.getElementById("video");
+  const serverVideo = document.getElementById("serverVideo");
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const snapBtn = document.getElementById("snapBtn");
+  const detectMsg = document.getElementById("detectMsg");
+  const liveStatus = document.getElementById("liveStatus");
+  const presentNow = document.getElementById("presentNow");
+  const recentList = document.getElementById("recentList");
+
+  let stream = null;
+  let serverStreamActive = false;
+  let detectInterval = null;
+  let lastPresentSet = new Set();
+  const attentionHistory = {};
+
+  function getAverageAttention(id) {
+    const arr = attentionHistory[String(id)];
+    if (!arr || arr.length === 0) return null;
+    const sum = arr.reduce((a, b) => a + b, 0);
+    return Math.round((sum / arr.length) * 10) / 10;
+  }
+
+  function getAttentionPayload() {
+    const out = {};
+    for (const sid of Object.keys(attentionHistory)) {
+      const avg = getAverageAttention(sid);
+      if (avg !== null) out[sid] = avg;
+    }
+    return out;
+  }
+
+  // Helpers
+  function allCheckboxes() {
+    return Array.from(document.querySelectorAll(".student-checkbox"));
+  }
+  function setStatus(id, text, cls = "bg-success") {
+    const el = document.getElementById("status-" + id);
+    if (!el) return;
+    el.className = "badge " + cls;
+    el.innerText = text;
+  }
+
+  function updatePresentNow(presentIds, students, attentionScores = {}) {
+    // record per-student attention scores across frames
+    if (attentionScores && typeof attentionScores === "object") {
+      for (const [sid, val] of Object.entries(attentionScores)) {
+        const num = parseFloat(val);
+        if (!Number.isNaN(num)) {
+          if (!attentionHistory[sid]) attentionHistory[sid] = [];
+          attentionHistory[sid].push(num);
+        }
+      }
+    }
+
+    // presentIds: array of ids, students: list {id, display_name}
+    lastPresentSet = new Set(presentIds.map((x) => String(x)));
+    // check boxes for present
+    allCheckboxes().forEach((cb) => {
+      const avgAtt = getAverageAttention(cb.value);
+      if (lastPresentSet.has(cb.value)) {
+        cb.checked = true;
+        const label = avgAtt !== null ? `Detected (${avgAtt}%)` : "Detected";
+        setStatus(cb.value, label, "bg-success");
+      } else {
+        // do not uncheck if teacher already manually checked earlier — only mark as not-detected visually
+        if (!cb.checked) setStatus(cb.value, "Not Detected", "bg-secondary");
+        else if (avgAtt !== null) setStatus(cb.value, `Present (${avgAtt}%)`, "bg-success");
+      }
+    });
+
+    // update presentNow small panel (names)
+    presentNow.innerHTML = "";
+    if (!presentIds || presentIds.length === 0) {
+      presentNow.innerHTML = '<div class="text-muted">No one detected</div>';
+      return;
+    }
+    for (let id of presentIds) {
+      const elLabel = document.querySelector(
+        '.student-checkbox[value="' + id + '"]'
+      );
+      const name = elLabel
+        ? elLabel.closest("label").querySelector("strong").innerText
+        : "ID " + id;
+      const avgAtt = getAverageAttention(id);
+      const attTxt = avgAtt !== null ? ` — Attention: ${avgAtt}%` : "";
+      const div = document.createElement("div");
+      div.innerText = "• " + name + attTxt;
+      presentNow.appendChild(div);
+    }
+
+    // recentList append
+    const nowStr = new Date().toLocaleTimeString();
+    const r = document.createElement("div");
+    r.innerHTML = `<small>${nowStr}</small> — ${presentIds.length} detected`;
+    recentList.prepend(r);
+    // keep recentList to max 20 entries
+    while (recentList.children.length > 20)
+      recentList.removeChild(recentList.lastChild);
+  }
+
+  async function sendImageBlob(blob) {
+    const form = new FormData();
+    form.append("image", blob, "frame.jpg");
+    // send session_id so server knows which subject/semester
+    form.append("session_id", '{{ session["id"] }}');
+    try {
+      const res = await fetch("/api/detect_frame", {
+        method: "POST",
+        body: form,
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        detectMsg.innerHTML =
+          '<div class="alert alert-danger">' +
+          (j.error || JSON.stringify(j)) +
+          "</div>";
+        return null;
+      }
+      detectMsg.innerHTML =
+        '<div class="text-success">Last detection: ' +
+        j.present_ids.length +
+        " matched</div>";
+      return j;
+    } catch (e) {
+      detectMsg.innerHTML =
+        '<div class="alert alert-danger">Detection failed: ' +
+        e.message +
+        "</div>";
+      return null;
+    }
+  }
+
+  function captureFrameToBlob() {
+    if (serverStreamActive) {
+      const w = serverVideo.naturalWidth || VIDEO_WIDTH;
+      const h = serverVideo.naturalHeight || VIDEO_HEIGHT;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(serverVideo, 0, 0, w, h);
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.75);
+      });
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || VIDEO_WIDTH;
+    canvas.height = video.videoHeight || VIDEO_HEIGHT;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.7);
+    });
+  }
+
+  // Live loop
+  async function detectionLoopOnce() {
+    if (!stream && !serverStreamActive) return;
+    liveStatus.innerText = "Detecting...";
+    const blob = await captureFrameToBlob();
+    if (blob) {
+      const result = await sendImageBlob(blob);
+      if (result) {
+        updatePresentNow(result.present_ids, result.students || [], result.attention_scores || {});
+      }
+    }
+    liveStatus.innerText = "Running";
+  }
+
+  function startDetectionLoop() {
+    if (detectInterval) clearInterval(detectInterval);
+    detectInterval = setInterval(detectionLoopOnce, DETECT_INTERVAL_MS);
+    // run one immediately
+    detectionLoopOnce();
+  }
+
+  function stopDetectionLoop() {
+    if (detectInterval) {
+      clearInterval(detectInterval);
+      detectInterval = null;
+    }
+  }
+  // ---------- Mobile Camera Fallback ----------
+  const phoneCameraInput = document.getElementById("phoneCameraInput");
+  const usePhoneCamBtn = document.getElementById("usePhoneCamBtn");
+  const cameraHint = document.getElementById("cameraHint");
+
+  // When phone camera capture finishes (user takes photo)
+  phoneCameraInput.addEventListener("change", async (ev) => {
+    if (!ev.target.files || ev.target.files.length === 0) return;
+    const file = ev.target.files[0];
+    detectMsg.innerHTML =
+      "<div class='text-info'>Uploading photo & detecting…</div>";
+    const form = new FormData();
+    form.append("image", file);
+    form.append("session_id", '{{ session["id"] }}');
+
+    try {
+      const res = await fetch("/api/detect_frame", {
+        method: "POST",
+        body: form,
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        detectMsg.innerHTML =
+          '<div class="alert alert-danger">' +
+          (j.error || JSON.stringify(j)) +
+          "</div>";
+        return;
+      }
+      detectMsg.innerHTML =
+        '<div class="alert alert-success">Detected ' +
+        j.present_ids.length +
+        " student(s)</div>";
+      updatePresentNow(j.present_ids, j.students || [], j.attention_scores || {});
+    } catch (err) {
+      detectMsg.innerHTML =
+        '<div class="alert alert-danger">Upload failed: ' +
+        err.message +
+        "</div>";
+    } finally {
+      phoneCameraInput.value = ""; // reset so user can take another photo
+    }
+  });
+
+  // Button click to open phone camera
+  usePhoneCamBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    phoneCameraInput.click();
+  });
+  // ---------- End of fallback ----------
+
+  function startLiveServerAttendanceStream() {
+    return new Promise((resolve, reject) => {
+      video.style.display = "none";
+      serverVideo.style.display = "block";
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          serverStreamActive = true;
+          resolve();
+        }
+      }, 2500);
+      serverVideo.onload = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          serverStreamActive = true;
+          resolve();
+        }
+      };
+      serverVideo.onerror = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          serverStreamActive = false;
+          serverVideo.removeAttribute("src");
+          serverVideo.style.display = "none";
+          video.style.display = "block";
+          reject(new Error("PC webcam stream could not be opened."));
+        }
+      };
+      serverVideo.src = "/api/server_camera_stream?t=" + Date.now();
+    });
+  }
+
+  async function stopLiveServerAttendanceStream(useBeacon = false) {
+    if (!serverStreamActive) return;
+    serverStreamActive = false;
+    serverVideo.removeAttribute("src");
+    serverVideo.style.display = "none";
+    video.style.display = "block";
+    if (useBeacon && navigator.sendBeacon) {
+      navigator.sendBeacon("/api/server_camera_stop");
+    } else {
+      try {
+        await fetch("/api/server_camera_stop", { method: "POST" });
+      } catch {}
+    }
+  }
+
+  window.addEventListener("pagehide", () => {
+    stopLiveServerAttendanceStream(true);
+  });
+
+  // Buttons
+  startBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (stream || serverStreamActive) {
+      detectMsg.innerHTML =
+        "<div class='text-info'>Camera already running</div>";
+      return;
+    }
+
+    // hide phone fallback initially
+    if (typeof usePhoneCamBtn !== "undefined")
+      usePhoneCamBtn.style.display = "none";
+    cameraHint.innerText = "Attempting to start camera...";
+
+    const hasModern = !!(
+      navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+    );
+    const hasLegacy = !!(
+      navigator.getUserMedia ||
+      navigator.webkitGetUserMedia ||
+      navigator.mozGetUserMedia
+    );
+
+    try {
+      if (hasModern) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      } else if (hasLegacy) {
+        const legacy =
+          navigator.getUserMedia ||
+          navigator.webkitGetUserMedia ||
+          navigator.mozGetUserMedia;
+        stream = await new Promise((resolve, reject) =>
+          legacy.call(navigator, { video: true, audio: false }, resolve, reject)
+        );
+      } else {
+        throw new Error("Browser camera API unavailable");
+      }
+
+      try {
+        video.srcObject = stream;
+        await video.play();
+      } catch (playErr) {
+        console.warn("video.play() failed:", playErr);
+      }
+
+      startDetectionLoop();
+      liveStatus.innerText = "Running";
+      cameraHint.innerText = "Live camera active.";
+      detectMsg.innerHTML = "<div class='text-success'>Live camera started</div>";
+    } catch (err) {
+      console.warn("getUserMedia error, trying PC OpenCV live stream:", err);
+      stream = null;
+      try {
+        await startLiveServerAttendanceStream();
+        startDetectionLoop();
+        liveStatus.innerText = "Running";
+        cameraHint.innerText = "Live PC OpenCV camera stream active.";
+        detectMsg.innerHTML = "<div class='text-success'>Live camera started</div>";
+      } catch (srvErr) {
+        if (typeof usePhoneCamBtn !== "undefined")
+          usePhoneCamBtn.style.display = "inline-block";
+        cameraHint.innerText =
+          "Live camera blocked — use the 'Use Phone Camera' button below.";
+        detectMsg.innerHTML = `
+        <div class="alert alert-warning">
+          Camera error: ${err.message || err}. (${srvErr.message})<br>
+          If you're on mobile, use "Use Phone Camera" or open over HTTPS.
+        </div>`;
+      }
+    }
+  });
+
+  stopBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      video.srcObject = null;
+    }
+    await stopLiveServerAttendanceStream();
+    stopDetectionLoop();
+    liveStatus.innerText = "Stopped";
+  });
+
+  snapBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (!stream && !serverStreamActive)
+      return (detectMsg.innerHTML =
+        '<div class="alert alert-warning">Start camera first</div>');
+    const blob = await captureFrameToBlob();
+    if (!blob) return;
+    const j = await sendImageBlob(blob);
+    if (j) updatePresentNow(j.present_ids, j.students || [], j.attention_scores || {});
+  });
+
+  // upload form fallback
+  document
+    .getElementById("uploadForm")
+    .addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      fd.append("session_id", '{{ session["id"] }}');
+      const r = await fetch("", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) {
+        detectMsg.innerHTML =
+          '<div class="alert alert-danger">' +
+          (j.error || JSON.stringify(j)) +
+          "</div>";
+        return;
+      }
+      updatePresentNow(j.present_ids, j.students || [], j.attention_scores || {});
+    });
+
+  // Save attendance
+  // Save attendance
+  document.getElementById("saveBtn").addEventListener("click", async (e) => {
+    e.preventDefault();
+    const presentIds = allCheckboxes()
+      .filter((cb) => cb.checked)
+      .map((cb) => parseInt(cb.value));
+
+    const subjectId = document.querySelector('input[name="subject_id"]').value;
+    const dt = document.querySelector('input[name="date"]').value;
+
+    // read batch id (empty string -> null)
+    const batchIdRaw = document.querySelector('input[name="batch_id"]')
+      ? document.querySelector('input[name="batch_id"]').value
+      : "";
+    const batchId = batchIdRaw ? parseInt(batchIdRaw) : null;
+
+    const saveBtn = e.target;
+    saveBtn.disabled = true;
+
+    try {
+      const r = await fetch("/api/mark_bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_id: parseInt(subjectId),
+          date: dt,
+          batch_id: batchId,
+          present_ids: presentIds,
+          attention_scores: getAttentionPayload(),
+        }),
+      });
+      const j = await r.json();
+
+      if (r.ok) {
+        alert(
+          "Attendance saved successfully! Present count: " + j.present_count
+        );
+        // ✅ Redirect to home page (index)
+        window.location.href = "/";
+      } else {
+        alert("Save error: " + (j.error || JSON.stringify(j)));
+      }
+    } catch (err) {
+      alert("Save failed: " + err.message);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  document.getElementById("checkAll").addEventListener("click", (e) => {
+    e.preventDefault();
+    allCheckboxes().forEach((cb) => (cb.checked = true));
+  });
+  document.getElementById("clearAll").addEventListener("click", (e) => {
+    e.preventDefault();
+    allCheckboxes().forEach((cb) => (cb.checked = false));
+  });
+
+  // initialize statuses as Not Detected
+  allCheckboxes().forEach((cb) =>
+    setStatus(cb.value, "Not Detected", "bg-secondary")
+  );
+</script>
+{% endblock %}

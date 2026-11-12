@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="py-3">
+  <div class="d-flex align-items-center mb-3">
+    <h2 class="m-0 me-3">Students</h2>
+    <a class="btn btn-sm btn-primary me-2" href="{{ url_for('page_register') }}">Add / Register Student</a>
+
+    <form class="d-flex gap-2 ms-auto" method="get" style="max-width:520px;">
+      <select class="form-select form-select-sm" name="semester" onchange="this.form.submit()">
+        <option value="">All semesters</option>
+        {% for sem in semesters %}
+          <option value="{{ sem['semester'] }}" {% if selected_semester==sem['semester'] %}selected{% endif %}>{{ sem['semester'] }}</option>
+        {% endfor %}
+      </select>
+      <select class="form-select form-select-sm" name="sort" onchange="this.form.submit()">
+        <option value="usn_asc" {% if sort=='usn_asc' %}selected{% endif %}>USN ↑</option>
+        <option value="usn_desc" {% if sort=='usn_desc' %}selected{% endif %}>USN ↓</option>
+        <option value="name_asc" {% if sort=='name_asc' %}selected{% endif %}>Name ↑</option>
+        <option value="name_desc" {% if sort=='name_desc' %}selected{% endif %}>Name ↓</option>
+      </select>
+    </form>
+  </div>
+
+  {% if students %}
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle">
+        <thead>
+          <tr>
+            <th style="width:1px">#</th>
+            <th>USN</th>
+            <th>Name</th>
+            <th>Semester</th>
+            <th style="width:180px">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in students %}
+            <tr id="row-{{ s.id }}">
+              <td>{{ loop.index }}</td>
+              <td>{{ s.usn or '-' }}</td>
+              <td>{{ s.display_name }}</td>
+              <td>{{ s.semester or '-' }}</td>
+              <td>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('page_student_edit', student_id=s.id) }}">Edit</a>
+                <button class="btn btn-sm btn-danger" onclick="deleteStudent({{ s.id }})">Delete</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">No students found.</div>
+  {% endif %}
+</div>
+
+<script>
+async function deleteStudent(id) {
+  if (!confirm("Delete this student? This will remove their embeddings and attendance too.")) return;
+  try {
+    const res = await fetch("/students/delete/" + id, { method: "POST" });
+    const j = await res.json();
+    if (!res.ok) {
+      alert("Delete failed: " + (j.error || JSON.stringify(j)));
+      return;
+    }
+    // remove row
+    const r = document.getElementById("row-" + id);
+    if (r) r.remove();
+  } catch (e) {
+    alert("Delete error: " + e.message);
+  }
+}
+</script>
+{% endblock %}
