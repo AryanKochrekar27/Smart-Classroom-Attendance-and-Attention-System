@@ -1,5 +1,7 @@
 # face_utils.py
 import os
+import glob
+import bz2
 import numpy as np
 import cv2
 import dlib
@@ -11,6 +13,29 @@ DLIB_DIR = os.path.join('data', 'data_dlib')
 PREDICTOR_PATH = os.path.join(DLIB_DIR, 'shape_predictor_68_face_landmarks.dat')
 FACE_RECOG_MODEL_PATH = os.path.join(DLIB_DIR, 'dlib_face_recognition_resnet_model_v1.dat')
 
+
+def ensure_predictor_model(predictor_path=PREDICTOR_PATH):
+    if os.path.exists(predictor_path):
+        return predictor_path
+    parts = sorted(glob.glob(f"{predictor_path}.bz2.part*"))
+    if not parts:
+        raise FileNotFoundError(f"Missing {predictor_path} and chunk files {predictor_path}.bz2.part*")
+    print(f"[face_utils] Reassembling {predictor_path} from {len(parts)} chunks...")
+    decompressor = bz2.BZ2Decompressor()
+    tmp_path = f"{predictor_path}.tmp"
+    with open(tmp_path, "wb") as out:
+        for part_path in parts:
+            with open(part_path, "rb") as pf:
+                while True:
+                    chunk = pf.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    out.write(decompressor.decompress(chunk))
+    os.replace(tmp_path, predictor_path)
+    return predictor_path
+
+
+ensure_predictor_model(PREDICTOR_PATH)
 
 # dlib initializations
 _detector = dlib.get_frontal_face_detector()

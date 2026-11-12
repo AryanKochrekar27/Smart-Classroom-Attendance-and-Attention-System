@@ -24,3 +24,6 @@ tempCodeRunnerFile.py
 .DS_Store
 Thumbs.db
 
+# Reassembled at runtime from shape_predictor_68_face_landmarks.dat.bz2.part*
+data/data_dlib/shape_predictor_68_face_landmarks.dat
+
